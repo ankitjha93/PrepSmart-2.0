@@ -6,10 +6,23 @@ import React, { useEffect, useState } from 'react'
 import Webcam from 'react-webcam'
 import useSpeechToText from 'react-hook-speech-to-text';
 import { Mic } from 'lucide-react'
+import { toast } from 'sonner'
+import { chatSession } from '@/utils/GeminiAIModal'
+import { db } from '@/utils/db'
+import { useUser } from '@clerk/nextjs'
+import moment from 'moment'
+ 
 
-function RecordAnswerSection() {
+
+
+
+function RecordAnswerSection({mockInterviewQuestion, activeQuestionIndex, interviewData}) {
 
   const [userAnswer, setUserAnswer] = useState('');
+
+  const {user} = useUser();
+  
+  const[loading, setLoading] = useState(false)
 
   const {
     error,
@@ -18,6 +31,7 @@ function RecordAnswerSection() {
     results,
     startSpeechToText,
     stopSpeechToText,
+    setResults
   } = useSpeechToText({
      continuous: true,
      useLegacyResults: false
@@ -29,6 +43,75 @@ function RecordAnswerSection() {
         setUserAnswer(prevAns => prevAns+result?.transcript)
        ))
   },[results])
+
+  useEffect(() => {
+      if(!isRecording&&userAnswer.length>10){
+        UpdateUserAnswer();
+      }  
+      // if(userAnswer?.length<10){
+      //     setLoading(false);
+      //     toast('error while saving your answer, Please record again')
+      //     return;
+      //   }
+  },[userAnswer])
+
+
+  const StartStopRecording = async() => {
+    if(isRecording){
+      // setLoading(true);
+      stopSpeechToText();
+      // if(userAnswer?.length<10){
+      //   setLoading(false);
+      //   toast('error while saving your answer, Please record again')
+      //   return;
+      // }
+
+     
+      
+
+    }else{
+      startSpeechToText()
+    }
+  }
+
+  const UpdateUserAnswer = async() => {
+
+    console.log(userAnswer);
+
+    setLoading(true);
+
+    const feedbackPrompt = 'Question:'+mockInterviewQuestion[activeQuestionIndex]?.question+',User Answer:'+userAnswer+', Depends on question and user answer for given interview question'+'please give us rating for answer and feedback as area of improvement if any'+'in just 3 to 5 lines to improve it in JSON format with rating field and feedback field';
+
+    const result = await chatSession.sendMessage(feedbackPrompt);
+
+    const mockJsonResp = (result.response.text()).replace('```json','').replace('```','');
+
+    console.log(mockJsonResp);
+
+    const JsonFeedbackResp = JSON.parse(mockJsonResp);
+
+    const resp = await db.insert(userAnswer)
+    .values({
+      mockIDRef:interviewData?.mockID,
+      question:mockInterviewQuestion[activeQuestionIndex]?.question,
+      correctAns:mockInterviewQuestion[activeQuestionIndex]?.answer,
+      userAns:userAnswer,
+      feedback:JsonFeedbackResp?.feedback,
+      rating:JsonFeedbackResp?.rating,
+      userEmail:user?.primaryEmailAddress?.emailAddress,
+      createdAt:moment().format('DD-MM-YYYY')
+    })
+
+    if(resp){
+       toast('User answer recorded successfully');
+       setUserAnswer('');
+       setResults([]);
+    }
+
+     setResults([]);
+    // setUserAnswer('');
+    setLoading(false);
+  }
 
   return (
     <div className='flex items-center justify-center flex-col'>
@@ -43,9 +126,11 @@ function RecordAnswerSection() {
         }}
       />
 </div>
-        <Button variant = 'outline' className='my-10'
+        <Button 
+        disabled = {loading}
+        variant = 'outline' className='my-10'
         
-         onClick = {isRecording?stopSpeechToText:startSpeechToText}
+         onClick = { StartStopRecording}
         >
 
          {isRecording?
@@ -56,7 +141,7 @@ function RecordAnswerSection() {
         'Record Answer'}</Button>
          
 
-         <Button onClick={() => console.log(userAnswer)}>Show User Answer</Button>
+         {/* <Button onClick={() => console.log(userAnswer)}>Show User Answer</Button> */}
 
  
 
